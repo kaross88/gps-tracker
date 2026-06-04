@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GPS Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --surface: #ffffff;
+      --border: #dde3ea;
+      --accent: #00e5ff;
+      --accent2: #ff4d6d;
+      --text: #1a2332;
+      --muted: #7a8a9a;
+      --green: #39ff85;
+      --yellow: #ffd60a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      grid-template-columns: 340px 1fr;
+      overflow: hidden;
+    }
+
+    /* HEADER */
+    header {
+      grid-column: 1 / -1;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 16px;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+      flex-shrink: 0;
+    }
+    .status-dot.active { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.5s infinite; }
+    .status-dot.inactive { background: var(--accent2); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    #status-label {
+      font-size: 12px;
+      font-family: 'IBM Plex Mono', monospace;
+      color: var(--muted);
+      margin-right: auto;
+    }
+
+    .header-btn {
+      padding: 6px 16px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: all 0.2s;
+    }
+    .header-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+    .header-btn.danger { border-color: var(--accent2); color: var(--accent2); }
+    .header-btn.danger:hover { background: var(--accent2); color: #000; }
+
+    /* SIDEBAR */
+    #sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .section {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-family: 'IBM Plex Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* Live stats */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .stat-label { font-size: 12px; color: var(--muted); }
+    .stat-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 20px;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+    .stat-unit { font-size: 11px; color: var(--muted); margin-left: 3px; }
+
+    /* Speed gauge */
+    .speed-display {
+      text-align: center;
+      padding: 12px 0 4px;
+    }
+    .speed-number {
+      font-size: 56px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+      font-family: 'IBM Plex Mono', monospace;
+      letter-spacing: -0.04em;
+    }
+    .speed-number.fast { color: var(--yellow); }
+    .speed-number.very-fast { color: var(--accent2); }
+    .speed-kmh { font-size: 13px; color: var(--muted); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+
+    /* Coords */
+    .coord-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .coord-box span { color: var(--text); }
+
+    /* Trip history */
+    .trip-item {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .trip-item:last-child { border-bottom: none; }
+    .trip-item:hover { opacity: 0.75; }
+    .trip-item-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .trip-date { font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+    .trip-km { font-size: 14px; font-weight: 600; color: var(--accent); font-family: 'IBM Plex Mono', monospace; }
+    .trip-meta { font-size: 11px; color: var(--muted); }
+
+    /* Total stats */
+    .total-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .total-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .total-card-label { font-size: 10px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .total-card-value { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 500; color: var(--text); }
+
+    /* MAP */
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #e8edf2;
+    }
+
+    /* Leaflet dark overrides */
+    .leaflet-container { background: #e8edf2; }
+    .leaflet-control-zoom a {
+      background: var(--surface) !important;
+      border-color: var(--border) !important;
+      color: var(--text) !important;
+    }
+    .leaflet-popup-content-wrapper {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .leaflet-popup-tip { background: var(--surface); }
+
+    .no-trips { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 0; }
+
+    /* scrollbar */
+    #sidebar::-webkit-scrollbar { width: 4px; }
+    #sidebar::-webkit-scrollbar-track { background: transparent; }
+    #sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Heading marker */
+    .car-arrow {
+      font-size: 24px;
+      transform-origin: center;
+      display: inline-block;
+      filter: drop-shadow(0 0 6px var(--accent));
+    }
+
+    /* MOBILE */
+    @media (max-width: 768px) {
+      body {
+        grid-template-rows: 48px 45vh 1fr;
+        grid-template-columns: 1fr;
+        overflow-y: auto;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      header {
+        grid-column: 1;
+        padding: 0 12px;
+        gap: 8px;
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+      }
+
+      header h1 { font-size: 15px; }
+
+      .header-btn { 
+        padding: 5px 8px; 
+        font-size: 10px;
+      }
+
+      /* Karte — otrā (augšā aiz header) */
+      #map {
+        grid-row: 2;
+        height: 45vh;
+        width: 100%;
+      }
+
+      /* Sānjosla — zem kartes */
+      #sidebar {
+        grid-row: 3;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        overflow-y: visible;
+      }
+
+      /* Statistika — horizontāli rindā */
+      .section:nth-child(1),
+      .section:nth-child(2) {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0 16px;
+        align-items: start;
+      }
+
+      .speed-display {
+        padding: 4px 0;
+      }
+
+      .speed-number { font-size: 42px; }
+
+      /* Ātruma sadaļa kompaktāka */
+      .section:first-child .section-title {
+        grid-column: 1 / -1;
+      }
+
+      .section { padding: 14px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="status-dot" id="dot"></div>
+  <h1>GPS Tracker</h1>
+  <span id="status-label">Savienojas...</span>
+  <button class="header-btn" onclick="centerMap()">⊕ Centrēt</button>
+  <button class="header-btn" onclick="toggleRoute()">〰 Maršruts</button>
+  <button class="header-btn danger" onclick="endTrip()">■ Beigt braucienu</button>
+</header>
+
+<div id="sidebar">
+  <!-- Live speed -->
+  <div class="section">
+    <div class="section-title">Ātrums</div>
+    <div class="speed-display">
+      <div class="speed-number" id="speed-val">0</div>
+      <div class="speed-kmh">km/h</div>
+    </div>
+  </div>
+
+  <!-- Current trip stats -->
+  <div class="section">
+    <div class="section-title">Aktīvais brauciens</div>
+    <div class="stat-row">
+      <span class="stat-label">Nobraukts</span>
+      <span><span class="stat-value" id="trip-km">0.00</span><span class="stat-unit">km</span></span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Laiks</span>
+      <span class="stat-value" id="trip-time" style="font-size:16px">00:00:00</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Vid. ātrums</span>
+      <span><span class="stat-value" id="trip-avg" style="font-size:16px">0</span><span class="stat-unit">km/h</span></span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Maks. ātrums</span>
+      <span><span class="stat-value" id="trip-max" style="font-size:16px">0</span><span class="stat-unit">km/h</span></span>
+    </div>
+    <div class="coord-box" id="coords-box">
+      Gaida GPS signālu...
+    </div>
+  </div>
+
+  <!-- Trip history -->
+  <div class="section">
+    <div class="section-title">Braucienu vēsture</div>
+    <div id="trip-history"><div class="no-trips">Nav braucienu</div></div>
+  </div>
+
+  <!-- All-time stats -->
+  <div class="section">
+    <div class="section-title">Kopā visi braucieni</div>
+    <div class="total-grid">
+      <div class="total-card">
+        <div class="total-card-label">Braucieni</div>
+        <div class="total-card-value" id="total-trips">0</div>
+      </div>
+      <div class="total-card">
+        <div class="total-card-label">Kopā km</div>
+        <div class="total-card-value" id="total-km">0</div>
+      </div>
+      <div class="total-card">
+        <div class="total-card-label">Kopā laiks</div>
+        <div class="total-card-value" id="total-time">0h</div>
+      </div>
+      <div class="total-card">
+        <div class="total-card-label">Maks. ātrums</div>
+        <div class="total-card-value" id="total-max">0</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+// =====================
+// CONFIG — change this to your backend URL
+// =====================
+const BACKEND_HTTP = 'https://gps-tracker-backend-production-b61c.up.railway.app';
+const BACKEND_WS   = 'wss://gps-tracker-backend-production-b61c.up.railway.app';
+// =====================
+
+let map, marker, routeLine, routePoints = [], showRoute = true;
+
+// --- Map init ---
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([56.946, 24.105], 13);
+
+  
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(map);
+
+  routeLine = L.polyline([], {
+    color: '#0066cc',
+    weight: 3,
+    opacity: 0.75,
+    dashArray: null
+  }).addTo(map);
+}
+
+// Car marker icon
+function makeCarIcon(heading) {
+  return L.divIcon({
+    html: `<div style="transform:rotate(${heading}deg);font-size:28px;filter:drop-shadow(0 0 8px #00e5ff)">🔵</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    className: ''
+  });
+}
+
+function updateMarker(lat, lng, heading) {
+  if (!marker) {
+    marker = L.marker([lat, lng], { icon: makeCarIcon(heading) }).addTo(map);
+  } else {
+    marker.setLatLng([lat, lng]);
+    marker.setIcon(makeCarIcon(heading));
+  }
+}
+
+function centerMap() {
+  if (marker) map.setView(marker.getLatLng(), map.getZoom());
+}
+
+function toggleRoute() {
+  showRoute = !showRoute;
+  routeLine.setStyle({ opacity: showRoute ? 0.75 : 0 });
+}
+
+// --- Speed display ---
+function updateSpeed(speed) {
+  const el = document.getElementById('speed-val');
+  el.textContent = Math.round(speed);
+  el.className = 'speed-number';
+  if (speed > 100) el.classList.add('very-fast');
+  else if (speed > 60) el.classList.add('fast');
+}
+
+// --- Format helpers ---
+function fmtTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('lv-LV') + ' ' + d.toLocaleTimeString('lv-LV', {hour:'2-digit',minute:'2-digit'});
+}
+
+// --- Trip update from WS ---
+function handleTripUpdate(trip) {
+  document.getElementById('trip-km').textContent = (trip.distance_km || 0).toFixed(2);
+  document.getElementById('trip-time').textContent = fmtTime(trip.duration_sec || 0);
+  document.getElementById('trip-avg').textContent = Math.round(trip.avg_speed_kmh || 0);
+  document.getElementById('trip-max').textContent = Math.round(trip.max_speed_kmh || 0);
+}
+
+// --- Fetch trip history ---
+async function loadTrips() {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/trips`);
+    const trips = await res.json();
+    const el = document.getElementById('trip-history');
+    if (!trips.length) {
+      el.innerHTML = '<div class="no-trips">Nav iepriekšējo braucienu</div>';
+      return;
+    }
+    el.innerHTML = trips.filter(t => t.ended_at).slice(0, 20).map(t => `
+      <div class="trip-item" onclick="loadTripRoute(${t.id})">
+        <div class="trip-item-header">
+          <span class="trip-date">${fmtDate(t.started_at)}</span>
+          <span class="trip-km">${(t.distance_km||0).toFixed(1)} km</span>
+        </div>
+        <div class="trip-meta">
+          ${fmtTime(t.duration_sec||0)} · vid. ${Math.round(t.avg_speed_kmh||0)} km/h · maks. ${Math.round(t.max_speed_kmh||0)} km/h
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    console.error('Failed to load trips', e);
+  }
+}
+
+async function loadTripRoute(tripId) {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/trips/${tripId}/points`);
+    const points = await res.json();
+    const latlngs = points.map(p => [p.lat, p.lng]);
+    routeLine.setLatLngs(latlngs);
+    if (latlngs.length) map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+  } catch(e) { console.error(e); }
+}
+
+// --- Total stats ---
+async function loadStats() {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/stats`);
+    const s = await res.json();
+    document.getElementById('total-trips').textContent = s.total_trips || 0;
+    document.getElementById('total-km').textContent = (s.total_km||0).toFixed(0);
+    document.getElementById('total-time').textContent = Math.round((s.total_sec||0)/3600) + 'h';
+    document.getElementById('total-max').textContent = Math.round(s.all_time_max_speed||0) + ' km/h';
+  } catch(e) {}
+}
+
+// --- End trip ---
+async function endTrip() {
+  if (!confirm('Beigt aktīvo braucienu?')) return;
+  try {
+    await fetch(`${BACKEND_HTTP}/api/trip/end`, { method: 'POST' });
+    routePoints = [];
+    routeLine.setLatLngs([]);
+    loadTrips();
+    loadStats();
+  } catch(e) { alert('Neizdevās beigt braucienu'); }
+}
+
+// --- WebSocket connection ---
+let ws, wsReconnectTimer;
+
+function connectWS() {
+  ws = new WebSocket(BACKEND_WS);
+  const dot = document.getElementById('dot');
+  const label = document.getElementById('status-label');
+
+  ws.onopen = () => {
+    dot.className = 'status-dot active';
+    label.textContent = 'Savienots';
+    label.style.color = 'var(--green)';
+    clearTimeout(wsReconnectTimer);
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    if (msg.type === 'position') {
+      const { lat, lng, speed_kmh, heading } = msg;
+      updateMarker(lat, lng, heading || 0);
+      updateSpeed(speed_kmh || 0);
+
+      document.getElementById('coords-box').innerHTML =
+        `<span>${lat.toFixed(6)}</span>, <span>${lng.toFixed(6)}</span>`;
+
+      routePoints.push([lat, lng]);
+      routeLine.setLatLngs(routePoints);
+
+      // Auto-follow
+      if (map.getZoom() >= 13) map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    }
+
+    if (msg.type === 'trip_update') handleTripUpdate(msg.trip);
+    if (msg.type === 'trip_started') { routePoints = []; routeLine.setLatLngs([]); }
+    if (msg.type === 'trip_ended') { loadTrips(); loadStats(); }
+  };
+
+  ws.onclose = () => {
+    dot.className = 'status-dot inactive';
+    label.textContent = 'Savienojums pārtraukts — atkārtoti savienojas...';
+    label.style.color = 'var(--accent2)';
+    wsReconnectTimer = setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+// --- Init ---
+initMap();
+connectWS();
+loadTrips();
+loadStats();
+
+// Refresh history every 30s
+setInterval(() => { loadTrips(); loadStats(); }, 30000);
+</script>
+</body>
+</html>
